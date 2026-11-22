@@ -1,6 +1,16 @@
 /**
  * Penyimpanan data berbasis file JSON (`backend/db.json`).
  *
+ * RANCANGAN ARSITEKTUR LAYER A (DATABASE):
+ * Sesuai dokumen perencanaan teknis:
+ * 1. Skema tabel tugas TETAP UTUH (tanpa kolom baru):
+ *    - `deadline` dan `status` sudah tersedia.
+ *    - Status urgensi tidak disimpan di database untuk menghindari stale data.
+ * 2. Composite Index Strategy:
+ *    - Pada implementasi RDBMS (PostgreSQL/MySQL), ditambahkan composite index:
+ *      INDEX idx_tasks_user_status_deadline (user_id, status, deadline)
+ *      untuk mempercepat query filter per user dan sorting deadline.
+ *
  * Isi berkas:
  *   nextIds : penghitung ID auto-increment untuk tiap entitas
  *   users   : { id, nama, email, password_hash }
