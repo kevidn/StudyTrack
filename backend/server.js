@@ -6,12 +6,18 @@
  */
 import express from "express";
 import cors from "cors";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 
 import { PORT } from "./config.js";
 import authRoutes from "./routes/auth.js";
 import courseRoutes from "./routes/courses.js";
 import taskRoutes from "./routes/tasks.js";
 import { resetDB } from "./db.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, "../frontend/dist");
 
 const app = express();
 
@@ -40,7 +46,18 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-// Fallback untuk endpoint yang tidak terdaftar
+// Sajikan file statis frontend jika build tersedia (produksi / fullstack deployment)
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
+// Fallback untuk endpoint API yang tidak terdaftar
 app.use((req, res) => {
   res.status(404).json({ error: "Endpoint tidak ditemukan." });
 });
