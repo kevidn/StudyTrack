@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { readDB, writeDB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { calculateUrgency, sortTasks } from "../utils/urgency.js";
 
 const router = Router();
 
@@ -10,26 +11,33 @@ router.use(requireAuth);
 /**
  * GET /api/tasks
  * Daftar seluruh tugas milik pengguna yang sedang login, lintas semua mata
- * kuliah. Setiap tugas menyertakan `mata_kuliah` (nama mata kuliahnya).
+ * kuliah. Setiap tugas menyertakan `mata_kuliah` (nama mata kuliahnya) serta
+ * `urgency_status`, `remaining_hours`, dan `rank` hasil kalkulasi waktu server.
  *
- * Urutan saat ini: `created_at` terbaru di atas.
+ * Urutan pengurutan (sesuai spesifikasi Tugas 2 Layer B):
+ * 1. rank ASC (1: approaching -> 2: overdue -> 3: normal)
+ * 2. deadline ASC (deadline terdekat tampil lebih atas)
+ * 3. created_at DESC (tugas terbaru di atas jika deadline sama)
  *
  * Response : 200 { tasks }
- *
- * CATATAN UNTUK PESERTA STUDI KASUS:
- * Ini adalah titik yang relevan untuk fitur "Reminder Tugas Mendekati Deadline".
- * Silakan tambahkan logic untuk menandai/mengurutkan ulang tugas yang
- * sisa waktunya < 24 jam di sini (atau di tempat lain sesuai rancangan Anda).
  */
 router.get("/", (req, res) => {
   const db = readDB();
+  // Waktu referensi terpusat di server (dapat dioverride via ?now= untuk testing skenario verifikasi)
+  const referenceTime = req.query.now ? new Date(req.query.now) : new Date();
+
   const tasks = db.tasks
     .filter((t) => t.user_id === req.user.id)
     .map((t) => {
       const course = db.courses.find((c) => c.id === t.mata_kuliah_id);
-      return { ...t, mata_kuliah: course ? course.name : null };
+      const urgency = calculateUrgency(t.deadline, t.status, referenceTime);
+      return {
+        ...t,
+        mata_kuliah: course ? course.name : null,
+        ...urgency
+      };
     })
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    .sort(sortTasks);
 
   res.json({ tasks });
 });
@@ -47,7 +55,17 @@ router.get("/:id", (req, res) => {
   if (!task) {
     return res.status(404).json({ error: "Tugas tidak ditemukan." });
   }
-  res.json({ task });
+
+  const course = db.courses.find((c) => c.id === task.mata_kuliah_id);
+  const urgency = calculateUrgency(task.deadline, task.status);
+
+  res.json({
+    task: {
+      ...task,
+      mata_kuliah: course ? course.name : null,
+      ...urgency
+    }
+  });
 });
 
 /**
