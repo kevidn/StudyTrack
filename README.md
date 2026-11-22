@@ -1,168 +1,133 @@
-# StudyTrack Baseline
+# StudyTrack — Reminder Tugas Mendekati Deadline
+> **Academya Arkavidia 11.0 • Software Engineer Assessment**  
+> Oleh: **Kevin Dzaky Hendratama**
 
-Starter kit untuk bonus **Implementasi kode nyata** pada studi kasus seleksi Software Engineer, Academya Arkavidia 11.0.
+Aplikasi manajemen tugas kuliah berbasis web yang telah ditingkatkan dengan fitur **Reminder Tugas Mendekati Deadline** menggunakan framework **3P (Perubahan &rarr; Pemetaan &rarr; Perincian)** dan implementasi nyata arsitektur 3 layer (Database, Backend, Frontend).
 
-Isinya adalah kondisi StudyTrack saat ini: empat modul yang sudah berjalan (autentikasi, manajemen mata kuliah, manajemen tugas, dan halaman daftar tugas). Fitur **Reminder Tugas Mendekati Deadline** sengaja belum ada karena itulah yang perlu Anda rancang dan kerjakan.
+---
 
-> Starter kit ini bersifat opsional. Anda boleh memakai stack lain selama struktur datanya konsisten dengan Bagian 1 (Konteks Aplikasi) pada dokumen studi kasus.
+## 🚀 Fitur Baru: Reminder Tugas Mendekati Deadline (F01–F04)
 
-## Stack
+1. **F01 (Deteksi Otomatis &lt; 24 Jam):** Tugas secara otomatis diklasifikasikan sebagai `approaching` (mendekati deadline) apabila sisa waktu hingga batas pengumpulan kurang dari 24 jam sejak waktu referensi saat ini.
+2. **F02 (Prioritas Tampil Teratas & Aksen Oranye):** Tugas mendekati deadline ditempatkan di posisi paling atas halaman daftar tugas dengan aksen border oranye hangat (`#ea580c`), penanda badge `⏳ Segera (< 24 Jam)`, dan indikator sisa waktu.
+3. **F03 (Penanda Khusus Overdue):** Tugas yang telah melewati batas deadline (`overdue`) tetap ditampilkan dengan pembeda visual yang jelas berupa border merah kontras (`#dc2626`) dan badge `⚠️ Terlewat (Overdue)`.
+4. **F04 (Lintas Mata Kuliah):** Berlaku otomatis untuk seluruh tugas milik pengguna yang sedang login tanpa memandang mata kuliah asal.
 
-- **Backend:** Node.js + Express. Data disimpan di file JSON, jadi tidak perlu memasang database terpisah.
-- **Frontend:** React + Vite.
+---
 
-## Prasyarat
+## 🏛️ Arsitektur Teknis 3 Layer (Sesuai Slide Deck)
 
-- Node.js 20.19 atau lebih baru (atau 22.12+), sesuai syarat Vite 8.
-- npm.
+### Layer A: Database
+- **Stabilitas Skema:** Skema tabel `tasks` dipertahankan **tanpa penambahan kolom baru**. Hal ini bertujuan menghindari *stale data* karena status urgensi bersifat dinamis dan bergantung pada pergerakan waktu.
+- **Strategi Indexing:** Pada skenario production RDBMS (PostgreSQL/MySQL), diterapkan strategi composite index:
+  ```sql
+  CREATE INDEX idx_tasks_user_status_deadline ON tasks (user_id, status, deadline);
+  ```
+  untuk memastikan query pencarian tugas per pengguna dan pengurutan deadline berjalan dengan efisiensi $O(\log N)$.
 
-## Fitur yang Sudah Tersedia
+### Layer B: Backend Logic (`backend/utils/urgency.js` & `backend/routes/tasks.js`)
+- Logika penentuan status urgensi dieksekusi terpusat di server untuk memastikan konsistensi waktu (*single source of truth*).
+- **Logika Klasifikasi & Ranking:**
+  ```text
+  diffHours = (deadline - now) / 1 jam
+  IF status == 'selesai':
+      rank = 3 (urgency_status = 'normal')
+  ELSE IF diffHours < 0:
+      rank = 2 (urgency_status = 'overdue')
+  ELSE IF diffHours < 24:
+      rank = 1 (urgency_status = 'approaching')
+  ELSE:
+      rank = 3 (urgency_status = 'normal')
+  ```
+- **Sorting Logic:** `SORT BY rank ASC, deadline ASC, created_at DESC`.
 
-- Registrasi, login, dan logout. Password di-hash dengan bcrypt dan sesi memakai JWT.
-- Manajemen Mata Kuliah: lihat, tambah, dan hapus di UI. Endpoint ubah (`PUT`) juga tersedia di API.
-- Manajemen Tugas per mata kuliah: lihat, tambah, ubah status (belum/selesai), dan hapus di UI. Endpoint ubah (`PUT`) juga tersedia di API.
-- Halaman Daftar Tugas: seluruh tugas pengguna lintas mata kuliah, terurut dari `created_at` terbaru.
+### Layer C: Frontend UI (`frontend/src/components/TaskCard.jsx`)
+- Render kondisional dengan feedback visual kontras:
+  - **Approaching:** Aksen border oranye, background lembut, badge `⏳ Segera (< 24 Jam)`.
+  - **Overdue:** Aksen border merah, badge `⚠️ Terlewat (Overdue)`.
+  - **Normal:** Tampilan netral abu-abu tanpa distraksi.
+- **🔬 Simulator Skenario (Demo Helper):** Dilengkapi bar simulasi waktu interaktif di halaman utama untuk memudahkan pengujian live dan presentasi video.
 
-## Cara Menjalankan
+---
 
-### 1. Backend
+## 🧪 Hasil Verifikasi & Pengujian Otomatis
+
+Seluruh skenario pengujian dari **Tugas 3 Dokumen Studi Kasus** telah diverifikasi dengan automated test suite:
 
 ```bash
-cd backend
-cp .env.example .env
-npm install
-npm run dev
+npm test
 ```
 
-Backend berjalan di `http://localhost:4000`. Port dan `JWT_SECRET` bisa diatur lewat file `.env`.
+| No | Skenario | Kondisi / Input | Hasil yang Diharapkan | Status |
+|:---|:---|:---|:---|:---:|
+| 1 | **Positif** | Waktu acuan: `2026-07-01 15:00` (sisa 19 jam dari ID 2) | ID 2 berkategori `approaching`, rank 1, tampil paling atas | **PASS** |
+| 2 | **Negatif** | Waktu acuan: `2026-07-02 12:00` (lewat 2 jam dari ID 2) | ID 2 berkategori `overdue`, rank 2, aksen merah | **PASS** |
+| 3a | **Edge Case** | Sisa tepat 24 jam (`2026-07-01 10:00`) | Berkategori `normal` (rank 3), tidak naik ke prioritas | **PASS** |
+| 3b | **Edge Case** | Sisa 19 jam tetapi status sudah `selesai` | Berkategori `normal` (rank 3), tidak dianggap urgent | **PASS** |
 
-### 2. Frontend
+---
 
-Buka terminal baru, lalu jalankan:
+## 💻 Cara Menjalankan Secara Lokal
 
+### Prasyarat
+- Node.js &ge; 20.19.0
+- npm
+
+### 1. Jalankan Seluruh Aplikasi (Fullstack)
 ```bash
-cd frontend
-npm install
-npm run dev
-```
+# Install seluruh dependency
+npm run postinstall
 
-Frontend berjalan di `http://localhost:5173`. Selama mode development, request `/api/*` otomatis diteruskan ke backend oleh proxy Vite.
+# Build frontend untuk mode produksi
+npm run build
+
+# Jalankan server
+npm start
+```
+Buka browser di `http://localhost:4000`.
+
+### 2. Mode Pengembangan (Hot Reload)
+- **Terminal 1 (Backend):**
+  ```bash
+  cd backend
+  cp .env.example .env
+  npm run dev
+  ```
+  Backend aktif di `http://localhost:4000`.
+
+- **Terminal 2 (Frontend):**
+  ```bash
+  cd frontend
+  npm run dev
+  ```
+  Frontend aktif di `http://localhost:5173`.
 
 ### 3. Akun Demo
+- **Email:** `demo@studytrack.test`
+- **Password:** `demo1234`
 
-File `backend/db.json` dibuat otomatis saat backend pertama kali dijalankan dan langsung berisi data seed. Anda bisa masuk dengan akun berikut:
+---
 
-| Email | Password |
-| --- | --- |
-| `demo@studytrack.test` | `demo1234` |
+## 🌐 Panduan Deployment Publik (Bonus)
 
-Untuk mengembalikan data ke kondisi seed kapan pun:
+Aplikasi telah disiapkan agar siap di-deploy secara instan ke platform cloud gratis:
 
+### Opsi A: Render.com (Direkomendasikan via `render.yaml`)
+1. Buka [dashboard.render.com](https://dashboard.render.com/) & pilih **New +** &rarr; **Blueprint** (atau **Web Service**).
+2. Hubungkan repositori GitHub: `https://github.com/kevidn/StudyTrack`.
+3. Render akan membaca `render.yaml` secara otomatis dan melakukan build serta deploy.
+
+### Opsi B: Docker Container
+Tersedia multi-stage `Dockerfile`:
 ```bash
-curl -X POST http://localhost:4000/api/dev/reset
+docker build -t studytrack .
+docker run -p 4000:4000 studytrack
 ```
 
-Endpoint ini hanya aktif selama `NODE_ENV` bukan `production`.
+---
 
-## Struktur Data
-
-Struktur ini mengikuti Bagian 1 (Konteks Aplikasi) pada dokumen studi kasus. Kolom `user_id` ditambahkan di luar daftar itu supaya setiap mahasiswa hanya melihat datanya sendiri.
-
-**Mata kuliah** (`courses`)
-
-| Field | Tipe | Keterangan |
-| --- | --- | --- |
-| `id` | integer | Identitas unik |
-| `name` | string | Nama mata kuliah |
-| `kode` | string | Kode mata kuliah, contoh: `CS 186` |
-| `dosen` | string | Nama dosen pengampu |
-| `user_id` | integer | Pemilik data |
-
-**Tugas** (`tasks`)
-
-| Field | Tipe | Keterangan |
-| --- | --- | --- |
-| `id` | integer | Identitas unik |
-| `judul` | string | Judul tugas |
-| `deskripsi` | string | Deskripsi atau catatan tambahan |
-| `deadline` | datetime | Batas pengumpulan |
-| `status` | enum | `belum` atau `selesai` |
-| `mata_kuliah_id` | integer | Referensi ke mata kuliah terkait |
-| `created_at` | datetime | Waktu tugas ditambahkan |
-| `user_id` | integer | Pemilik data |
-
-> **Format waktu.** `deadline` disimpan sebagai waktu lokal tanpa zona waktu, persis seperti keluaran input `datetime-local` (contoh: `2026-07-03T23:59`). Sementara itu `created_at` pada tugas baru berformat ISO 8601 UTC (contoh: `2026-10-23T09:00:00.000Z`). Perhatikan perbedaan ini saat Anda menghitung sisa waktu hingga deadline.
-
-## Data Seed
-
-Data awal sama dengan contoh pada dokumen studi kasus:
-
-| ID | Judul | Mata Kuliah | Deadline | Status |
-| --- | --- | --- | --- | --- |
-| 1 | Lab 4: Query Optimization Report | CS 186, Database Systems | 2026-07-03 23:59 | belum |
-| 2 | Project 3: BSTMap Implementation | CS 61B, Data Structures | 2026-07-02 10:00 | belum |
-| 3 | Sprint 2: Backend API Integration | CS 169, Software Engineering | 2026-07-06 23:59 | belum |
-
-Tanggal pada data seed mengikuti dokumen, sehingga semuanya sudah lewat dari tanggal pengerjaan Anda. Untuk mencoba fitur yang Anda buat, tambahkan tugas baru dengan deadline yang dekat lewat form **Tambah Tugas**.
-
-## Ringkasan API
-
-Semua endpoint di bawah `/api`. Endpoint bertanda "Ya" membutuhkan header `Authorization: Bearer <token>`.
-
-| Method | Path | Login | Keterangan |
-| --- | --- | --- | --- |
-| `GET` | `/health` | Tidak | Cek status server |
-| `POST` | `/auth/register` | Tidak | Daftar akun baru |
-| `POST` | `/auth/login` | Tidak | Login, mengembalikan token |
-| `GET` | `/auth/me` | Ya | Profil pengguna yang sedang login |
-| `GET` | `/courses` | Ya | Daftar mata kuliah |
-| `POST` | `/courses` | Ya | Tambah mata kuliah |
-| `PUT` | `/courses/:id` | Ya | Ubah mata kuliah |
-| `DELETE` | `/courses/:id` | Ya | Hapus mata kuliah beserta tugasnya |
-| `GET` | `/tasks` | Ya | Daftar seluruh tugas, lintas mata kuliah |
-| `GET` | `/tasks/:id` | Ya | Detail satu tugas |
-| `POST` | `/tasks` | Ya | Tambah tugas (`mata_kuliah_id`, `judul`, `deadline`, `deskripsi?`) |
-| `PUT` | `/tasks/:id` | Ya | Ubah tugas, termasuk status |
-| `DELETE` | `/tasks/:id` | Ya | Hapus tugas |
-| `POST` | `/dev/reset` | Tidak | Reset data ke seed (hanya di luar production) |
-
-## Struktur Proyek
-
-```
-studytrack-baseline/
-├── backend/
-│   ├── server.js            # Entry point Express
-│   ├── config.js            # Membaca .env (PORT, JWT_SECRET)
-│   ├── db.js                # Penyimpanan JSON file dan data seed
-│   ├── middleware/auth.js   # Verifikasi JWT
-│   └── routes/
-│       ├── auth.js          # Register, login, profil
-│       ├── courses.js       # CRUD mata kuliah
-│       └── tasks.js         # CRUD tugas (ada catatan untuk peserta)
-└── frontend/
-    └── src/
-        ├── main.jsx, App.jsx, AuthContext.jsx, api.js
-        ├── components/
-        │   ├── Navbar.jsx
-        │   └── TaskCard.jsx # Card tugas (ada catatan untuk peserta)
-        └── pages/
-            ├── Login.jsx, Register.jsx
-            ├── Courses.jsx
-            └── Tasks.jsx    # Halaman Daftar Tugas
-```
-
-## Titik Awal Fitur "Reminder Tugas Mendekati Deadline"
-
-Cari komentar bertuliskan **"CATATAN UNTUK PESERTA STUDI KASUS"** pada dua file berikut:
-
-- `backend/routes/tasks.js`
-- `frontend/src/components/TaskCard.jsx`
-
-Keduanya hanya penunjuk titik yang relevan. Anda tidak harus menaruh logika di sana, silakan sesuaikan dengan rancangan teknis Anda sendiri.
-
-## Catatan
-
-- Starter kit ini sengaja dibuat minimal. Fokus utamanya adalah fitur reminder deadline. Bonus lain pada dokumen (pemanfaatan AI/LLM, deployment, dan Git history yang rapi) bersifat opsional.
-- Anda boleh memigrasikan penyimpanan dari file JSON ke database sungguhan (SQLite, PostgreSQL, dan sebagainya), tetapi itu tidak wajib.
-- **Git history.** Salin starter kit ini ke repositori Anda sendiri dan commit kondisi awalnya lebih dulu, lalu kerjakan fitur di branch terpisah dengan commit message yang deskriptif.
-- **Deployment.** Proxy Vite hanya berlaku saat `npm run dev`, jadi frontend hasil build perlu diarahkan ke URL backend (misalnya lewat `baseURL` di `frontend/src/api.js`). Ganti juga `JWT_SECRET` dengan nilai acak dan atur `NODE_ENV=production`. Penyimpanan file di layanan gratis seperti Render atau Railway umumnya bersifat sementara, sehingga `db.json` bisa hilang saat redeploy.
+## 🌿 Git Branching Strategy
+Pengerjaan proyek mengikuti prinsip Git Workflow yang rapi dan deskriptif:
+- `main`: Branch rilis stabil.
+- `feat/deadline-reminder`: Branch pengerjaan fitur dengan Conventional Commits.
+- Pull Request terstruktur dapat ditinjau di: [PR #1 di GitHub](https://github.com/kevidn/StudyTrack/pull/1).
